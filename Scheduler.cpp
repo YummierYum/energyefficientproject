@@ -8,7 +8,7 @@
 #include "Scheduler.hpp"
 
 static bool migrating = false;
-static unsigned active_machines = 16;
+static unsigned active_machines = 0;
 
 void Scheduler::Init() {
     // Find the parameters of the clusters
@@ -18,28 +18,60 @@ void Scheduler::Init() {
     //      Get the memory of the machine
     //      Get the number of CPUs
     //      Get if there is a GPU or not
-    // 
-    SimOutput("Scheduler::Init(): Total number of machines is " + to_string(Machine_GetTotal()), 3);
-    SimOutput("Scheduler::Init(): Initializing scheduler", 1);
-    for(unsigned i = 0; i < active_machines; i++)
-        vms.push_back(VM_Create(LINUX, X86));
+    //
+    int total_machines = Machine_GetTotal();
+    active_machines = total_machines;
+
+    SimOutput("Scheduler::Init(): Total number of machines is " + to_string(total_machines), 0);
+    SimOutput("Scheduler::Init(): Initializing scheduler", 0);
+
+    x86_machines.reserve(active_machines);
     for(unsigned i = 0; i < active_machines; i++) {
-        machines.push_back(MachineId_t(i));
-    }    
-    for(unsigned i = 0; i < active_machines; i++) {
-        VM_Attach(vms[i], machines[i]);
+        SimOutput("<1>", 0);
+        MachineId_t mid = MachineId_t(i);
+        Machine_SetState(mid, S0);  //  simple always on policy, for benchmarking
+
+        SimOutput("<2>", 0);
+
+        CPUType_t cputype = Machine_GetCPUType(mid);
+        VMId_t vmid = VM_Create(LINUX, cputype);
+        VM_Attach(vmid, mid);
+
+        SimOutput("<3>" + to_string(cputype), 0);
+
+        Machine machine;
+        machine.machine_id = mid;
+        machine.vms.push_back(vmid);
+        vms.push_back(vmid);
+
+        SimOutput(to_string(machine.machine_id) +" " + to_string(machine.vms.size()), 0);
+
+        SimOutput("<4>", 0);
+
+        switch (cputype) {
+        case X86:
+            SimOutput("<5>", 0);
+            SimOutput("x86 machines length before push: " + to_string(x86_machines.size()), 0);
+            x86_machines.push_back(machine);
+            SimOutput("<6>", 0);
+            break;
+        case ARM:
+            arm_machines.push_back(machine);
+            break;
+        case POWER:
+            power_machines.push_back(machine);
+            break;
+        case RISCV:
+            riscv_machines.push_back(machine);
+            break;
+        default:
+            break;
+        }
+
+
     }
 
-    bool dynamic = false;
-    if(dynamic)
-        for(unsigned i = 0; i<4 ; i++)
-            for(unsigned j = 0; j < 8; j++)
-                Machine_SetCorePerformance(MachineId_t(0), j, P3);
-    // Turn off the ARM machines
-    for(unsigned i = 24; i < Machine_GetTotal(); i++)
-        Machine_SetState(MachineId_t(i), S5);
-
-    SimOutput("Scheduler::Init(): VM ids are " + to_string(vms[0]) + " ahd " + to_string(vms[1]), 3);
+    SimOutput(to_string(active_machines) + " machines are selected for use by the scheduler", 0);
 }
 
 void Scheduler::MigrationComplete(Time_t time, VMId_t vm_id) {
@@ -64,13 +96,70 @@ void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
     // Turn on a machine, migrate an existing VM from a loaded machine....
     //
     // Other possibilities as desired
-    Priority_t priority = (task_id == 0 || task_id == 64)? HIGH_PRIORITY : MID_PRIORITY;
-    if(migrating) {
-        VM_AddTask(vms[0], task_id, priority);
+    // Priority_t priority = (task_id == 0 || task_id == 64)? HIGH_PRIORITY : MID_PRIORITY;
+    // if(migrating) {
+    //     VM_AddTask(vms[0], task_id, priority);
+    // }
+    // else {
+    //     VM_AddTask(vms[task_id % active_machines], task_id, priority);
+    // }// Skeleton code, you need to change it according to your algorithm
+
+    Priority_t priority = MID_PRIORITY;
+
+    CPUType_t task_cpu = RequiredCPUType(task_id);
+    vector<Machine>* possible_machines = nullptr;
+    switch (task_cpu) {
+    case X86:
+        possible_machines = &x86_machines;
+        break;
+    case ARM:
+        possible_machines = &arm_machines;
+        break;
+    case POWER:
+        possible_machines = &power_machines;  
+        break;
+    case RISCV:
+        possible_machines = &riscv_machines;
+        break;
+    default:
+        break;
     }
-    else {
-        VM_AddTask(vms[task_id % active_machines], task_id, priority);
-    }// Skeleton code, you need to change it according to your algorithm
+
+    int least_memory_machine = -1;
+    unsigned least_memory_used = UINT32_MAX;
+    for (size_t i = 0; i < possible_machines->size(); i++) {
+      unsigned memory_used = Machine_GetInfo((*possible_machines)[i].machine_id).memory_used;
+      if (memory_used < least_memory_used) {
+          least_memory_used = memory_used;
+          least_memory_machine = i;
+      }
+    }
+
+    vector<VMId_t>* possible_vms = &((*possible_machines)[least_memory_machine].vms);
+    VMType_t task_vm = GetTaskInfo(task_id).required_vm;
+    for (auto & vm : *possible_vms) {
+        VMType_t current_vm_type = VM_GetInfo(vm).vm_type;
+        if (current_vm_type == task_vm) {
+            VM_AddTask(vm, task_id, priority);
+            SimOutput("Scheduler::NewTask(): Assigned task " + to_string(task_id) 
+                      + " to existing VM " + to_string(vm) 
+                      + " on machine " 
+                      + to_string((*possible_machines)[least_memory_machine].machine_id), 4);
+            return;
+        }
+    }
+
+    VMId_t new_vm = VM_Create(task_vm, task_cpu);
+    MachineId_t target_machine = (*possible_machines)[least_memory_machine].machine_id;
+    VM_Attach(new_vm, target_machine);
+    (*possible_vms).push_back(new_vm);
+
+    VM_AddTask(new_vm, task_id, priority);
+    SimOutput("Scheduler::NewTask(): Created new VM " + to_string(new_vm)
+              + " on machine " + to_string(target_machine)
+              + " and assigned task " + to_string(task_id), 4);
+
+    return;
 }
 
 void Scheduler::PeriodicCheck(Time_t now) {

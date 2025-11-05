@@ -12,6 +12,11 @@
 
 #include "Interfaces.h"
 
+struct Machine {
+    MachineId_t machine_id;
+    vector<VMId_t> vms;
+};
+
 class Scheduler {
 public:
     Scheduler()                 {}
@@ -23,7 +28,10 @@ public:
     void TaskComplete(Time_t now, TaskId_t task_id);
 private:
     vector<VMId_t> vms;
-    vector<MachineId_t> machines;
+    vector<Machine> x86_machines;
+    vector<Machine> arm_machines;
+    vector<Machine> power_machines;
+    vector<Machine> riscv_machines;
 };
 
 
