@@ -12,6 +12,15 @@
 
 #include "Interfaces.h"
 
+class Machine {
+public:
+    MachineId_t machine_id;
+    vector<VMId_t> vms;
+
+    Machine() = default;
+    Machine(MachineId_t id) : machine_id(id) {}
+};
+
 class Scheduler {
 public:
     Scheduler()                 {}
@@ -23,7 +32,14 @@ public:
     void TaskComplete(Time_t now, TaskId_t task_id);
 private:
     vector<VMId_t> vms;
-    vector<MachineId_t> machines;
+    vector<Machine*> x86_machines;
+    vector<Machine*> arm_machines;
+    vector<Machine*> power_machines;
+    vector<Machine*> riscv_machines;
+
+    std::unordered_map<TaskId_t, VMId_t> task_to_vm_map;
+    std::unordered_map<VMId_t, Machine*> vm_to_machine_map;
+
 };
 
 
