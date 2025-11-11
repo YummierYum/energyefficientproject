@@ -19,7 +19,7 @@ const Time_t SECOND = 1000000;
 Time_t lastTaskWaitQueueCheck = 0;
 Time_t lastPoolAdjustmentCheck = 0;
 
-// HYPERPARAMETERS
+// HYPERPARAMETERS 
 Time_t taskWaitQueueCheckInterval = SECOND / 10;
 Time_t poolAdjustmentCheckInterval = SECOND;
 
