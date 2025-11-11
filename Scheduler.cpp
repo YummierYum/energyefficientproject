@@ -36,14 +36,6 @@ static bool migrating = false;
 static unsigned active_machines = 0;
 
 void Scheduler::Init() {
-    // Find the parameters of the clusters
-    // Get the total number of machines
-    // For each machine:
-    //      Get the type of the machine
-    //      Get the memory of the machine
-    //      Get the number of CPUs
-    //      Get if there is a GPU or not
-    //
     int total_machines = Machine_GetTotal();
     active_machines = total_machines; // lets just use all machines for this simple scheduler
 
@@ -78,8 +70,6 @@ void Scheduler::Init() {
         default:
             break;
         }
-
-
     }
 
     SimOutput(to_string(active_machines) + " out of " + to_string(total_machines) + " machines are selected for use by the scheduler", 1);
@@ -90,23 +80,6 @@ void Scheduler::MigrationComplete(Time_t time, VMId_t vm_id) {
 }
 
 void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
-    // Get the task parameters
-    //  IsGPUCapable(task_id);
-    //  GetMemory(task_id);
-    //  RequiredVMType(task_id);
-    //  RequiredSLA(task_id);
-    //  RequiredCPUType(task_id);
-    // Decide to attach the task to an existing VM, 
-    //      vm.AddTask(taskid, Priority_T priority); or
-    // Create a new VM, attach the VM to a machine
-    //      VM vm(type of the VM)
-    //      vm.Attach(machine_id);
-    //      vm.AddTask(taskid, Priority_t priority) or
-    // Turn on a machine, create a new VM, attach it to the VM, then add the task
-    //
-    // Turn on a machine, migrate an existing VM from a loaded machine....
-    //
-
     Priority_t priority = MID_PRIORITY; // all tasks have same priority in this simple scheduler
 
     // print task info for debugging
