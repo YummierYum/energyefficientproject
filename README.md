@@ -1,6 +1,7 @@
 This branch implements e-eco placement algorithm.
 Results:
 
+```
 make: Nothing to be done for 'all'.
 Running e-eco algorithm with input file: input_files/AnHour.md
 Total tasks completed: 256587
@@ -131,3 +132,4 @@ Total Energy 0.0882914KW-Hour
 Simulation run finished in 271.74 seconds
 
 ---
+```
