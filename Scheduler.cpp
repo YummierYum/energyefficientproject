@@ -92,10 +92,8 @@ void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
     //sla0 sla1 high priorty
     //sla2 mid priority
     Priority_t priority = (RequiredSLA(task_id) == SLA0 || RequiredSLA(task_id) == SLA1) ? HIGH_PRIORITY : MID_PRIORITY;
-    GetTaskInfo(task_id).priority = priority;
-    // print task info for debugging
-    // *** FIX: Commented out non-existent function 'GetTaskInfoString' ***
-    // SimOutput(GetTaskInfoString(task_id), 1); 
+    // GetTaskInfo(task_id).priority = priority;
+   
 
     CPUType_t task_cpu = RequiredCPUType(task_id);
     vector<Machine*>* possible_machines = nullptr;
@@ -123,9 +121,8 @@ void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
         if (minfo.memory_used + GetTaskMemory(task_id) <= minfo.memory_size) {
             for (auto & vm : (*possible_machines)[i]->vms) {
                 VM_AddTask(vm, task_id, priority);
+                
                 task_to_vm_map[task_id] = vm;
-                (*possible_machines)[i]->vms.push_back(vmid);
-
                 SimOutput("Scheduler::NewTask(): Assigned task " + to_string(task_id) + " to VM " + to_string(vm) + " on machine " + to_string((*possible_machines)[i]->machine_id), 4);
                 return;
             }
@@ -142,13 +139,6 @@ void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
 
 
     }
-    // priority = (task_id == 0 || task_id == 64)? HIGH_PRIORITY : MID_PRIORITY;
-    // if(migrating) {
-    //     VM_AddTask(vms[0], task_id, priority);
-    // }
-    // else {
-    //     VM_AddTask(vms[task_id % active_machines], task_id, priority);
-    // }// Skeleton code, you need to change it according to your algorithm
 }
 
 void Scheduler::PeriodicCheck(Time_t now) {

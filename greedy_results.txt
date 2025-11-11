@@ -1,19 +1,19 @@
 make: Nothing to be done for 'all'.
 Running greedy algorithm with input file: input_files/AnHour.md
 SLA violation report
-SLA0: 77.619%
-SLA1: 11.7974%
-SLA2: 6.72731%
-Total Energy 7.3635KW-Hour
+SLA0: 81.1111%
+SLA1: 22.2542%
+SLA2: 8.78963%
+Total Energy 7.37738KW-Hour
 Simulation run finished in 3603.48 seconds
 ----------------------------------------
 Running greedy algorithm with input file: input_files/BigSmall
 SLA violation report
-SLA0: 85.4468%
+SLA0: 92.4363%
 SLA1: 58.5366%
 SLA2: 0%
-Total Energy 0.0811435KW-Hour
-Simulation run finished in 100.38 seconds
+Total Energy 0.145507KW-Hour
+Simulation run finished in 187.62 seconds
 ----------------------------------------
 Running greedy algorithm with input file: input_files/Day
 SLA violation report
@@ -25,9 +25,9 @@ Simulation run finished in 86400.7 seconds
 ----------------------------------------
 Running greedy algorithm with input file: input_files/GentlerHour
 SLA violation report
-SLA0: 74.127%
-SLA1: 89.1495%
-SLA2: 5.99784%
+SLA0: 77.4603%
+SLA1: 94.7882%
+SLA2: 7.3397%
 Total Energy 7.27845KW-Hour
 Simulation run finished in 3603.48 seconds
 ----------------------------------------
@@ -41,11 +41,11 @@ Simulation run finished in 33.24 seconds
 ----------------------------------------
 Running greedy algorithm with input file: input_files/MatchMeIfYouCan
 SLA violation report
-SLA0: 85.4468%
+SLA0: 92.4363%
 SLA1: 58.5366%
 SLA2: 0%
-Total Energy 0.204276KW-Hour
-Simulation run finished in 100.38 seconds
+Total Energy 0.375654KW-Hour
+Simulation run finished in 187.62 seconds
 ----------------------------------------
 Running greedy algorithm with input file: input_files/NiceAndSmooth
 SLA violation report
@@ -57,11 +57,11 @@ Simulation run finished in 16.32 seconds
 ----------------------------------------
 Running greedy algorithm with input file: input_files/SpikeyMean
 SLA violation report
-SLA0: 85.4468%
+SLA0: 92.4363%
 SLA1: 58.5366%
 SLA2: 0%
-Total Energy 0.0713286KW-Hour
-Simulation run finished in 100.38 seconds
+Total Energy 0.127162KW-Hour
+Simulation run finished in 187.62 seconds
 ----------------------------------------
 Running greedy algorithm with input file: input_files/SpikeyNefarious
 SLA violation report
@@ -76,6 +76,6 @@ SLA violation report
 SLA0: 100%
 SLA1: 58.5366%
 SLA2: 0%
-Total Energy 0.111752KW-Hour
-Simulation run finished in 137.88 seconds
+Total Energy 0.200949KW-Hour
+Simulation run finished in 258.78 seconds
 ----------------------------------------
