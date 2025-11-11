@@ -3,7 +3,7 @@
 //  CloudSim
 //
 //  Created by ELMOOTAZBELLAH ELNOZAHY on 10/20/24.
-//
+//  Surain Saigal & Tyler Kubecka
 
 #include <string>     // For to_string
 #include <iostream>   // For cout
@@ -11,7 +11,7 @@
 #include <vector>     // For vector
 #include <unordered_map>
 
-#include "Scheduler.hpp" // This file defines MachineId_t, VMId_t, etc.
+#include "Scheduler.hpp"
 
 
 using namespace std;
@@ -19,21 +19,13 @@ static bool migrating = false;
 static unsigned active_machines = 0;
 
 void Scheduler::Init() {
-    // Find the parameters of the clusters
-    // Get the total number of machines
-    // For each machine:
-    //      Get the type of the machine
-    //      Get the memory of the machine
-    //      Get the number of CPUs
-    //      Get if there is a GPU or not
-    // 
     int total_machines = Machine_GetTotal();
     active_machines = total_machines; // lets just use all machines for this simple scheduler
 
     SimOutput("Scheduler::Init(): Total number of machines is " + to_string(total_machines), 1);
     SimOutput("Scheduler::Init(): Initializing scheduler", 1);
 
-    for(unsigned i = 0; i < active_machines; i++) {
+    for (unsigned i = 0; i < active_machines; i++) {
         MachineId_t mid = MachineId_t(i);
         Machine_SetState(mid, S0);  //  simple always on policy
 
@@ -61,10 +53,7 @@ void Scheduler::Init() {
         default:
             break;
         }
-
-
     }
-    
 }
 
 void Scheduler::MigrationComplete(Time_t time, VMId_t vm_id) {
@@ -72,18 +61,6 @@ void Scheduler::MigrationComplete(Time_t time, VMId_t vm_id) {
 }
 
 void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
-    // Get the task parameters
-    //  IsGPUCapable(task_id);
-    //  GetMemory(task_id);
-    //  RequiredVMType(task_id);
-    //  RequiredSLA(task_id);
-    //  RequiredCPUType(task_id);
-    // Decide to attach the task to an existing VM, 
-    //      vm.AddTask(taskid, Priority_T priority); or
-    // Create a new VM, attach the VM to a machine
-    //      VM vm(type of the VM)
-    //      vm.Attach(machine_id);
-    //      vm.AddTask(taskid, Priority_t priority) or
     // Turn on a machine, create a new VM, attach it to the VM, then add the task
     //
     // Turn on a machine, migrate an existing VM from a loaded machine....
@@ -92,8 +69,6 @@ void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
     //sla0 sla1 high priorty
     //sla2 mid priority
     Priority_t priority = (RequiredSLA(task_id) == SLA0 || RequiredSLA(task_id) == SLA1) ? HIGH_PRIORITY : MID_PRIORITY;
-    // GetTaskInfo(task_id).priority = priority;
-   
 
     CPUType_t task_cpu = RequiredCPUType(task_id);
     vector<Machine*>* possible_machines = nullptr;
@@ -105,7 +80,7 @@ void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
         possible_machines = &arm_machines;
         break;
     case POWER:
-        possible_machines = &power_machines;  
+        possible_machines = &power_machines;
         break;
     case RISCV:
         possible_machines = &riscv_machines;
@@ -115,13 +90,13 @@ void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
     }
 
     for (unsigned i = 0; i < possible_machines->size(); i++) {
-       
+
 
         MachineInfo_t minfo = Machine_GetInfo((*possible_machines)[i]->machine_id);
         if (minfo.memory_used + GetTaskMemory(task_id) <= minfo.memory_size) {
-            for (auto & vm : (*possible_machines)[i]->vms) {
+            for (auto& vm : (*possible_machines)[i]->vms) {
                 VM_AddTask(vm, task_id, priority);
-                
+
                 task_to_vm_map[task_id] = vm;
                 SimOutput("Scheduler::NewTask(): Assigned task " + to_string(task_id) + " to VM " + to_string(vm) + " on machine " + to_string((*possible_machines)[i]->machine_id), 4);
                 return;
@@ -153,7 +128,7 @@ void Scheduler::Shutdown(Time_t time) {
     // Report about the total energy consumed
     // Report about the SLA compliance
     // Shutdown everything to be tidy :-)
-    for(auto & vm: vms) {
+    for (auto& vm : vms) {
         VM_Shutdown(vm);
     }
     SimOutput("SimulationComplete(): Finished!", 4);
@@ -173,8 +148,8 @@ void Scheduler::TaskComplete(Time_t now, TaskId_t task_id) {
     VMId_t vm_id = task_map_entry->second;
     task_to_vm_map.erase(task_map_entry);
     VMInfo_t vminfo = VM_GetInfo(vm_id);
-    if (vminfo.active_tasks.empty()) { 
-        
+    if (vminfo.active_tasks.empty()) {
+
         SimOutput("Scheduler::TaskComplete(): VM " + to_string(vm_id) + " is now empty. Shutting down.", 4);
         auto machine_map_entry = vm_to_machine_map.find(vm_id);
         if (machine_map_entry != vm_to_machine_map.end()) {
@@ -243,14 +218,13 @@ void SimulationComplete(Time_t time) {
     cout << "SLA1: " << GetSLAReport(SLA1) << "%" << endl;
     cout << "SLA2: " << GetSLAReport(SLA2) << "%" << endl;     // SLA3 do not have SLA violation issues
     cout << "Total Energy " << Machine_GetClusterEnergy() << "KW-Hour" << endl;
-    cout << "Simulation run finished in " << double(time)/1000000 << " seconds" << endl;
+    cout << "Simulation run finished in " << double(time) / 1000000 << " seconds" << endl;
     SimOutput("SimulationComplete(): Simulation finished at time " + to_string(time), 4);
-    
+
     Scheduler.Shutdown(time);
 }
 
 void SLAWarning(Time_t time, TaskId_t task_id) {
-    
 }
 
 void StateChangeComplete(Time_t time, MachineId_t machine_id) {
