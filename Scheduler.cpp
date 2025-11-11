@@ -10,7 +10,7 @@
 #include <algorithm>  
 #include <vector>
 #include <limits>     
-
+#include <deque>
 #include "Scheduler.hpp"
 
 
@@ -136,88 +136,51 @@ void Scheduler::MigrationComplete(Time_t time, VMId_t vm_id) {
 
 void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
 
-    Priority_t priority = (RequiredSLA(task_id) == SLA0 || RequiredSLA(task_id) == SLA1) ? HIGH_PRIORITY : MID_PRIORITY;
-
-
     
-    CPUType_t task_cpu = RequiredCPUType(task_id);
-    vector<Machine*>* possible_machines = nullptr;
-    switch (task_cpu) {
-    case X86:
-        possible_machines = &x86_machines;
-        break;
-    case ARM:
-        possible_machines = &arm_machines;
-        break;
-    case POWER:
-        possible_machines = &power_machines;  
-        break;
-    case RISCV:
-        possible_machines = &riscv_machines;
-        break;
-    default:
-       
-        break;
+    if (!AttemptTaskPlacement(now, task_id)) {
+        // If placement fails, add to the overflow queue instead of just printing an error
+        SimOutput("Scheduler::NewTask: WARNING - Could not place task " + to_string(task_id) + ". No suitable VM or machine found. Adding to overflow queue.", 1);
+        overflow_task_queue.push_back(task_id);
     }
+}
 
-    if (possible_machines) {
+void Scheduler::TryScheduleOverflowTasks(Time_t now) {
+    // Keep processing the queue as long as it's not empty
+    while (!overflow_task_queue.empty()) {
+        
+        TaskId_t task_id = overflow_task_queue.front(); // Look at the front task
 
-       
-        for (Machine* target_machine : *possible_machines) {
-            for (VMId_t vm_id : target_machine->vms) {
-                
-                MachineInfo_t minfo = Machine_GetInfo(target_machine->machine_id);
-                
-                // Check 1: Memory
-                bool hasMemory = (minfo.memory_used + GetTaskMemory(task_id) <= minfo.memory_size);
-                
-                // Check 2: MIPS
-                double maxMips = machineMaxMips(target_machine);
-                double curMips = machineCurMips(target_machine, now);
-                double taskMips = getEstimatedTaskMips(task_id, now);
-                bool hasMips = (curMips + taskMips <= maxMips);
-
-                if (hasMemory && hasMips) {
-                    SimOutput("Scheduler::NewTask: Reusing VM " + to_string(vm_id) + " for task " + to_string(task_id), 4);
-                    VM_AddTask(vm_id, task_id, priority); 
-                    task_to_vm_map[task_id] = vm_id;
-                    return;
-                }
-            }
+        // Defensive check: In case task was completed by other means (unlikely in this model)
+        TaskInfo_t task_info = GetTaskInfo(task_id);
+        if (task_info.completed) {
+            SimOutput("Scheduler::TryScheduleOverflowTasks: Task " + to_string(task_id) + " in queue is already complete. Removing.", 2);
+            overflow_task_queue.pop_front();
+            continue;
         }
-
-        //new vm
-        for (unsigned i = 0; i < possible_machines->size(); i++) {
-            Machine* target_machine = possible_machines->at(i);
-            MachineInfo_t minfo = Machine_GetInfo(target_machine->machine_id);
-
-            
-            bool hasMemory = (minfo.memory_used + VM_MEMORY_OVERHEAD + GetTaskMemory(task_id) <= minfo.memory_size);
-
-            double maxMips = machineMaxMips(target_machine);
-            double curMips = machineCurMips(target_machine, now);
-            double taskMips = getEstimatedTaskMips(task_id, now);
-            bool hasMips = (curMips + taskMips <= maxMips);
-
-            if (hasMemory && hasMips) {
-                VMId_t vmid = VM_Create(RequiredVMType(task_id), task_cpu);
-                VM_Attach(vmid, target_machine->machine_id);
-                VM_AddTask(vmid, task_id, priority); 
-                
-                target_machine->vms.push_back(vmid);
-                vms.push_back(vmid);
-
-                task_to_vm_map[task_id] = vmid;
-                vm_to_machine_map[vmid] = target_machine;
-                return;
-            }
+        
+        // Try to place the task from the front of the queue
+        if (AttemptTaskPlacement(now, task_id)) {
+            // Success!
+            SimOutput("Scheduler::TryScheduleOverflowTasks: Successfully placed task " + to_string(task_id) + " from overflow queue.", 3);
+            overflow_task_queue.pop_front(); // Remove it from the queue
+            // Continue to the next task in the while loop
+        } else {
+            // Failure!
+            // The system is still full. Stop trying to place tasks from the queue.
+            // We'll try again later (on next TaskComplete or PeriodicCheck).
+            SimOutput("Scheduler::TryScheduleOverflowTasks: Failed to place task " + to_string(task_id) + " from overflow queue. Stopping attempt.", 3);
+            break; // Exit the while loop
         }
     }
-
-    SimOutput("Scheduler::NewTask: ERROR - Could not place task " + to_string(task_id) + ". No suitable VM or machine found.", 0);
 }
 
 void Scheduler::PeriodicCheck(Time_t now) {
+    
+    if (!overflow_task_queue.empty()) {
+        SimOutput("Scheduler::PeriodicCheck: Attempting to schedule " + to_string(overflow_task_queue.size()) + " overflow tasks.", 3);
+        TryScheduleOverflowTasks(now);
+    }
+    
 }
 
 void Scheduler::Shutdown(Time_t time) {
@@ -332,42 +295,140 @@ bool Scheduler::TryConsolidate(std::vector<Machine*>& machine_list, Time_t now) 
     return false; // No suitable target machine found
 }
 
+bool Scheduler::AttemptTaskPlacement(Time_t now, TaskId_t task_id) {
+    
+    Priority_t priority = (RequiredSLA(task_id) == SLA0 || RequiredSLA(task_id) == SLA1) ? HIGH_PRIORITY : MID_PRIORITY;
+    
+    CPUType_t task_cpu = RequiredCPUType(task_id);
+    vector<Machine*>* possible_machines = nullptr;
+    switch (task_cpu) {
+    case X86:
+        possible_machines = &x86_machines;
+        break;
+    case ARM:
+        possible_machines = &arm_machines;
+        break;
+    case POWER:
+        possible_machines = &power_machines;  
+        break;
+    case RISCV:
+        possible_machines = &riscv_machines;
+        break;
+    default:
+        break;
+    }
+
+    if (possible_machines) {
+        // First pass: try to reuse an existing VM
+        for (Machine* target_machine : *possible_machines) {
+            for (VMId_t vm_id : target_machine->vms) {
+                
+                MachineInfo_t minfo = Machine_GetInfo(target_machine->machine_id);
+                
+                bool hasMemory = (minfo.memory_used + GetTaskMemory(task_id) <= minfo.memory_size);
+                
+                double maxMips = machineMaxMips(target_machine);
+                double curMips = machineCurMips(target_machine, now);
+                double taskMips = getEstimatedTaskMips(task_id, now);
+                bool hasMips = (curMips + taskMips <= maxMips);
+
+                if (hasMemory && hasMips) {
+                    SimOutput("Scheduler::AttemptTaskPlacement: Reusing VM " + to_string(vm_id) + " for task " + to_string(task_id), 4);
+                    VM_AddTask(vm_id, task_id, priority); 
+                    task_to_vm_map[task_id] = vm_id;
+                    return true; // <-- Success
+                }
+            }
+        }
+
+        // Second pass: try to create a new VM
+        for (unsigned i = 0; i < possible_machines->size(); i++) {
+            Machine* target_machine = possible_machines->at(i);
+            MachineInfo_t minfo = Machine_GetInfo(target_machine->machine_id);
+
+            bool hasMemory = (minfo.memory_used + VM_MEMORY_OVERHEAD + GetTaskMemory(task_id) <= minfo.memory_size);
+
+            double maxMips = machineMaxMips(target_machine);
+            double curMips = machineCurMips(target_machine, now);
+            double taskMips = getEstimatedTaskMips(task_id, now);
+            bool hasMips = (curMips + taskMips <= maxMips);
+
+            if (hasMemory && hasMips) {
+                VMId_t vmid = VM_Create(RequiredVMType(task_id), task_cpu);
+                VM_Attach(vmid, target_machine->machine_id);
+                VM_AddTask(vmid, task_id, priority); 
+                
+                target_machine->vms.push_back(vmid);
+                vms.push_back(vmid);
+
+                task_to_vm_map[task_id] = vmid;
+                vm_to_machine_map[vmid] = target_machine;
+                return true; // <-- Success
+            }
+        }
+    }
+
+    // All placement attempts failed
+    return false; // <-- Failure
+}
 
 void Scheduler::TaskComplete(Time_t now, TaskId_t task_id) {
     SimOutput("Scheduler::TaskComplete(): Task " + to_string(task_id) + " is complete at " + to_string(now), 4);
 
+    // ... (all your existing logic for finding the task and VM) ...
     auto task_map_entry = task_to_vm_map.find(task_id);
     if (task_map_entry == task_to_vm_map.end()) {
-        SimOutput("Scheduler::TaskComplete(): WARNING - Task " + to_string(task_id) + " not in map! (Already completed?)", 1);
+        // ... (your warning message) ...
         return;
     }
     
     VMId_t vm_id = task_map_entry->second;
-
     task_to_vm_map.erase(task_map_entry);
-
     VMInfo_t vminfo = VM_GetInfo(vm_id);
 
+    // ... (all your existing logic for shutting down the VM if empty) ...
     if (vminfo.active_tasks.empty()) { 
-        SimOutput("Scheduler::TaskComplete(): VM " + to_string(vm_id) + " is now empty. Shutting down.", 4);
+       auto machine_map_entry = vm_to_machine_map.find(vm_id);
 
-        auto machine_map_entry = vm_to_machine_map.find(vm_id);
-        if (machine_map_entry != vm_to_machine_map.end()) {
-            
-            Machine* machine = machine_map_entry->second;
-            auto& vms_on_machine = machine->vms;
-            
-            auto vm_it = std::find(vms_on_machine.begin(), vms_on_machine.end(), vm_id);
-            if (vm_it != vms_on_machine.end()) {
-                vms_on_machine.erase(vm_it);
-            }
+if (machine_map_entry != vm_to_machine_map.end()) {
 
-            VM_Shutdown(vm_id);
-            vm_to_machine_map.erase(machine_map_entry);
 
-            vms.erase(std::remove(vms.begin(), vms.end(), vm_id), vms.end());
-        }
+Machine* machine = machine_map_entry->second;
+
+auto& vms_on_machine = machine->vms;
+
+
+auto vm_it = std::find(vms_on_machine.begin(), vms_on_machine.end(), vm_id);
+
+if (vm_it != vms_on_machine.end()) {
+
+vms_on_machine.erase(vm_it);
+
+}
+
+
+
+VM_Shutdown(vm_id);
+
+vm_to_machine_map.erase(machine_map_entry);
+
+
+
+vms.erase(std::remove(vms.begin(), vms.end(), vm_id), vms.end());
+
+}
     }
+
+
+    // --- ADD THIS SECTION ---
+    // A task just completed, freeing resources.
+    // Try to schedule any tasks waiting in the overflow queue.
+    // if (!overflow_task_queue.empty()) {
+    //     SimOutput("Scheduler::TaskComplete: Task finished. Checking overflow queue.", 4);
+    //     TryScheduleOverflowTasks(now);
+    // }
+    // --- END ADDITION ---
+
 
     if (!migrating) {
         if (TryConsolidate(x86_machines, now)) return;
@@ -405,6 +466,7 @@ void MigrationDone(Time_t time, VMId_t vm_id) {
 }
 
 void SchedulerCheck(Time_t time) {
+    Scheduler.PeriodicCheck(time);
 }
 
 void SimulationComplete(Time_t time) {

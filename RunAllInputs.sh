@@ -14,7 +14,7 @@ fi
 # Iterate over all files in the input directory
 for input_file in "$INPUT_DIR"/*; do
     if [ -f "$input_file" ]; then
-        echo "Running e-eco algorithm with input file: $input_file"
+        echo "Running pMapper algorithm with input file: $input_file"
         ./simulator -v 0 "$input_file"
         echo "----------------------------------------"
     fi

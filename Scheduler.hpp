@@ -3,7 +3,7 @@
 
 #include <vector>
 #include <unordered_map> // <-- FIX 1: Add this include
-
+#include <deque>
 #include "Interfaces.h"
 
 class Machine {
@@ -24,6 +24,8 @@ public:
     void PeriodicCheck(Time_t now);
     void Shutdown(Time_t now);
     void TaskComplete(Time_t now, TaskId_t task_id);
+    bool AttemptTaskPlacement(Time_t now, TaskId_t task_id);
+    void TryScheduleOverflowTasks(Time_t now);
 private:
     std::vector<VMId_t> vms;
     std::vector<Machine*> x86_machines;
@@ -32,7 +34,7 @@ private:
     std::vector<Machine*> riscv_machines;
     std::unordered_map<TaskId_t, VMId_t> task_to_vm_map;
     std::unordered_map<VMId_t, Machine*> vm_to_machine_map;
-
+    std::deque<TaskId_t> overflow_task_queue;
 
     struct MachineLoad {
         Machine* machine;
