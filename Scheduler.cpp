@@ -496,12 +496,15 @@ void Scheduler::PeriodicCheck(Time_t now) {
 }
 
 void Scheduler::Shutdown(Time_t time) {
-    // Do your final reporting and bookkeeping here.
-    // Report about the total energy consumed
-    // Report about the SLA compliance
-    // Shutdown everything to be tidy :-)
-    for(auto & vm: vms) {
-        VM_Shutdown(vm);
+    for(int i = 0; i < 4; i++) {
+        for (MachineWithVMs* machine : machinesByCPUType[i]) {
+          if(Machine_GetInfo(machine->machine_id).s_state != OFF_STATE && Machine_GetInfo(machine->machine_id).s_state != INTERMEDIATE_STATE) {
+              for (VMId_t vm : machine->vms) {
+                  VM_Shutdown(vm);
+              }
+              machine->vms.clear();
+          } 
+        }
     }
     SimOutput("SimulationComplete(): Finished!", 4);
     SimOutput("SimulationComplete(): Time is " + to_string(time), 4);
