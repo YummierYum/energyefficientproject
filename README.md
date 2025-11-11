@@ -2,6 +2,7 @@ This branch implements a naive single-issue memory balancing algorithm.
 
 Results:
 
+```
 make: Nothing to be done for 'all'.
 Running single issue memory balancing algorithm with input file: input_files/AnHour.md
 SLA violation report
@@ -102,3 +103,4 @@ Total Energy 0.0722715KW-Hour
 Simulation run finished in 85.8 seconds
 
 ---
+```
