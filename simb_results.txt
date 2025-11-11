@@ -79,5 +79,3 @@ SLA2: 0%
 Total Energy 0.0722715KW-Hour
 Simulation run finished in 85.8 seconds
 ----------------------------------------
-Running single issue memory balancing algorithm with input file: input_files/Z_AIandWebStressTest.md
-----------------------------------------
