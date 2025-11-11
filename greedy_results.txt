@@ -1,4 +1,12 @@
 make: Nothing to be done for 'all'.
+Running greedy algorithm with input file: input_files/AnHour.md
+SLA violation report
+SLA0: 77.619%
+SLA1: 11.7974%
+SLA2: 6.72731%
+Total Energy 7.3635KW-Hour
+Simulation run finished in 3603.48 seconds
+----------------------------------------
 Running greedy algorithm with input file: input_files/BigSmall
 SLA violation report
 SLA0: 85.4468%
