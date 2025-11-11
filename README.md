@@ -1,3 +1,6 @@
-This is the repository for the Cloud Simulator project for CS 378. To run this project, you can run `make all` to build the executable, which you can then run with `./simulator`.
+Please find our implementations of the following algorithms on their respective branches in this repo:
 
-For questions, please reach out to any of the course staff on via email (anish.palakurthi@utexas.edu, tarun.mohan@utexas.edu, mootaz@austin.utexas.edu) or Ed Discussion.
+1. Single-issue memory balancer
+2. Greedy
+3. p-Mapper
+4. e-eco
