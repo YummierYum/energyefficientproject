@@ -82,7 +82,7 @@ void Scheduler::Init() {
 
     }
 
-    SimOutput(to_string(active_machines) + " out of " + to_string(total_machines) + " machines are selected for use by the scheduler", 0);
+    SimOutput(to_string(active_machines) + " out of " + to_string(total_machines) + " machines are selected for use by the scheduler", 1);
 }
 
 void Scheduler::MigrationComplete(Time_t time, VMId_t vm_id) {
