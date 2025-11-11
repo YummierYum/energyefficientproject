@@ -42,7 +42,6 @@ static double machineCurMips(Machine* machine, Time_t now) {
     for (VMId_t vmId : machine->vms) {
         for (TaskId_t taskId : VM_GetInfo(vmId).active_tasks) {
             TaskInfo_t task = GetTaskInfo(taskId);
-            // Avoid division by zero/negative if task is already late
             if (task.target_completion <= now) continue; 
 
             uint64_t remainingInstructions = task.remaining_instructions;
@@ -145,12 +144,10 @@ void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
 }
 
 void Scheduler::TryScheduleOverflowTasks(Time_t now) {
-    // Keep processing the queue as long as it's not empty
     while (!overflow_task_queue.empty()) {
         
-        TaskId_t task_id = overflow_task_queue.front(); // Look at the front task
+        TaskId_t task_id = overflow_task_queue.front(); 
 
-        // Defensive check: In case task was completed by other means (unlikely in this model)
         TaskInfo_t task_info = GetTaskInfo(task_id);
         if (task_info.completed) {
             SimOutput("Scheduler::TryScheduleOverflowTasks: Task " + to_string(task_id) + " in queue is already complete. Removing.", 2);
@@ -158,18 +155,13 @@ void Scheduler::TryScheduleOverflowTasks(Time_t now) {
             continue;
         }
         
-        // Try to place the task from the front of the queue
         if (AttemptTaskPlacement(now, task_id)) {
-            // Success!
             SimOutput("Scheduler::TryScheduleOverflowTasks: Successfully placed task " + to_string(task_id) + " from overflow queue.", 3);
             overflow_task_queue.pop_front(); // Remove it from the queue
-            // Continue to the next task in the while loop
         } else {
-            // Failure!
-            // The system is still full. Stop trying to place tasks from the queue.
-            // We'll try again later (on next TaskComplete or PeriodicCheck).
+            
             SimOutput("Scheduler::TryScheduleOverflowTasks: Failed to place task " + to_string(task_id) + " from overflow queue. Stopping attempt.", 3);
-            break; // Exit the while loop
+            break; 
         }
     }
 }
@@ -369,16 +361,14 @@ bool Scheduler::AttemptTaskPlacement(Time_t now, TaskId_t task_id) {
     }
 
     // All placement attempts failed
-    return false; // <-- Failure
+    return false; 
 }
 
 void Scheduler::TaskComplete(Time_t now, TaskId_t task_id) {
     SimOutput("Scheduler::TaskComplete(): Task " + to_string(task_id) + " is complete at " + to_string(now), 4);
 
-    // ... (all your existing logic for finding the task and VM) ...
     auto task_map_entry = task_to_vm_map.find(task_id);
     if (task_map_entry == task_to_vm_map.end()) {
-        // ... (your warning message) ...
         return;
     }
     
@@ -386,48 +376,38 @@ void Scheduler::TaskComplete(Time_t now, TaskId_t task_id) {
     task_to_vm_map.erase(task_map_entry);
     VMInfo_t vminfo = VM_GetInfo(vm_id);
 
-    // ... (all your existing logic for shutting down the VM if empty) ...
     if (vminfo.active_tasks.empty()) { 
        auto machine_map_entry = vm_to_machine_map.find(vm_id);
 
-if (machine_map_entry != vm_to_machine_map.end()) {
+        if (machine_map_entry != vm_to_machine_map.end()) {
 
 
-Machine* machine = machine_map_entry->second;
+            Machine* machine = machine_map_entry->second;
 
-auto& vms_on_machine = machine->vms;
-
-
-auto vm_it = std::find(vms_on_machine.begin(), vms_on_machine.end(), vm_id);
-
-if (vm_it != vms_on_machine.end()) {
-
-vms_on_machine.erase(vm_it);
-
-}
+            auto& vms_on_machine = machine->vms;
 
 
+            auto vm_it = std::find(vms_on_machine.begin(), vms_on_machine.end(), vm_id);
 
-VM_Shutdown(vm_id);
+            if (vm_it != vms_on_machine.end()) {
 
-vm_to_machine_map.erase(machine_map_entry);
+                vms_on_machine.erase(vm_it);
+
+            }
+
+            VM_Shutdown(vm_id);
+
+            vm_to_machine_map.erase(machine_map_entry);
 
 
 
-vms.erase(std::remove(vms.begin(), vms.end(), vm_id), vms.end());
+            vms.erase(std::remove(vms.begin(), vms.end(), vm_id), vms.end());
 
-}
+            }
     }
 
 
-    // --- ADD THIS SECTION ---
-    // A task just completed, freeing resources.
-    // Try to schedule any tasks waiting in the overflow queue.
-    // if (!overflow_task_queue.empty()) {
-    //     SimOutput("Scheduler::TaskComplete: Task finished. Checking overflow queue.", 4);
-    //     TryScheduleOverflowTasks(now);
-    // }
-    // --- END ADDITION ---
+    
 
 
     if (!migrating) {
