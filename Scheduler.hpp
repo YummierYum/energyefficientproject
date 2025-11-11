@@ -12,15 +12,6 @@
 
 #include "Interfaces.h"
 
-class Machine {
-public:
-    MachineId_t machine_id;
-    vector<VMId_t> vms;
-
-    Machine() = default;
-    Machine(MachineId_t id) : machine_id(id) {}
-};
-
 class Scheduler {
 public:
     Scheduler()                 {}
@@ -32,10 +23,6 @@ public:
     void TaskComplete(Time_t now, TaskId_t task_id);
 private:
     vector<VMId_t> vms;
-    vector<Machine*> x86_machines;
-    vector<Machine*> arm_machines;
-    vector<Machine*> power_machines;
-    vector<Machine*> riscv_machines;
 };
 
 
