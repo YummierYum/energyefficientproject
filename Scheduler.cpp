@@ -275,18 +275,18 @@ void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
     tasksWaiting.push_back(task_id); // task is waiting to run
 }
 
-void popWaitingTask(Time_t now) {
+void runWaitingTasks(Time_t now) {
     //pop off tasks that are waiting until we run into a task that can't be run yet
     int tasksPopped = 0;
     while(tasksWaiting.size() > 0 ) {
         tasksPopped++;
-        SimOutput("Scheduler::popWaitingTask(): Task queue not empty with size " + to_string(tasksWaiting.size()) + ". Attempting to pop ONE waiting task (id: " + to_string(tasksWaiting[0]) + " ) at " + to_string(now), 1);
+        SimOutput("Scheduler::runWaitingTasks(): Task queue not empty with size " + to_string(tasksWaiting.size()) + ". Attempting to pop ONE waiting task (id: " + to_string(tasksWaiting[0]) + " ) at " + to_string(now), 1);
 
         TaskId_t task_id = tasksWaiting[0];
         TaskInfo_t task = GetTaskInfo(task_id);
 
         if (task.completed) {
-          ThrowException("popWaitingTask(): Task " + to_string(task_id) + " is already completed but still in waiting queue");
+          ThrowException("runWaitingTasks(): Task " + to_string(task_id) + " is already completed but still in waiting queue");
         }
 
         CPUType_t task_cpu = task.required_cpu;
@@ -367,7 +367,7 @@ void popWaitingTask(Time_t now) {
             continue;
         }
 
-        SimOutput("Scheduler::popWaitingTask(): Could not find machine for waiting task " + to_string(task_id) + ". Leaving in queue.", 1);
+        SimOutput("Scheduler::runWaitingTasks(): Could not find machine for waiting task " + to_string(task_id) + ". Leaving in queue.", 1);
         break;
     }
 }
@@ -377,7 +377,7 @@ void Scheduler::PeriodicCheck(Time_t now) {
 
     if(now - lastTaskWaitQueueCheck >= taskWaitQueueCheckInterval) {
         lastTaskWaitQueueCheck = now;
-        popWaitingTask(now);
+        runWaitingTasks(now);
     }
 
     if(now - lastPoolAdjustmentCheck >= poolAdjustmentCheckInterval) {
@@ -531,6 +531,8 @@ void HandleNewTask(Time_t time, TaskId_t task_id) {
 void HandleTaskCompletion(Time_t time, TaskId_t task_id) {
     SimOutput("HandleTaskCompletion(): Task " + to_string(task_id) + " completed at time " + to_string(time), 4);
     Scheduler.TaskComplete(time, task_id);
+
+    // runWaitingTasks(time); // we already probe the queue often enough for this not to really matter
 }
 
 void MemoryWarning(Time_t time, MachineId_t machine_id) {
