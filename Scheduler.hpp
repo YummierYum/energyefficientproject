@@ -2,14 +2,14 @@
 #define Scheduler_hpp
 
 #include <vector>
-#include <unordered_map> // <-- FIX 1: Add this include
+#include <unordered_map>
 #include <deque>
 #include "Interfaces.h"
 
 class Machine {
 public:
     MachineId_t machine_id;
-    std::vector<VMId_t> vms; // <-- Good practice to use std::vector
+    std::vector<VMId_t> vms; 
 
     Machine() = default;
     Machine(MachineId_t id) : machine_id(id) {}
