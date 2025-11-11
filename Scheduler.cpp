@@ -3,7 +3,7 @@
 //  CloudSim
 //
 //  Created by ELMOOTAZBELLAH ELNOZAHY on 10/20/24.
-// EEco
+// e-eco algorithm
 
 #include "Scheduler.hpp"
 
@@ -15,29 +15,19 @@
 #include <math.h>
 #include <deque>
 
-// Managing machines
-// vector<vector<MachineId_t>> machine_matrix;
-
 unsigned total_machines;
 
+// track machines and their assigned VMs
+class MachineWithVMs {
+public:
+    MachineId_t machine_id;
+    vector<VMId_t> vms;
 
+    MachineWithVMs() = default;
+    MachineWithVMs(MachineId_t id) : machine_id(id) {}
+};
 
-// // Current mips of vm
-// unsigned vm_eff_mips(MachineId_t machine_id, VMId_t vm_id, Time_t curr) {
-//     unsigned eff_mips = 0;
-
-//     for (TaskId_t task_id : VM_GetInfo(vm_id).active_tasks) {
-//         TaskInfo_t info = GetTaskInfo(task_id);
-
-//         uint64_t remaining_instr = info.remaining_instructions;
-//         uint64_t time_frame = info.target_completion - curr;
-
-//         eff_mips += remaining_instr / time_frame;
-//     }
-    
-// 	return eff_mips;
-// }
-
+// Maximum mips of machine
 double machineMaxMips(MachineWithVMs machine) {
     MachineInfo_t machineInfo = Machine_GetInfo(machine.machine_id);
     return (double) machineInfo.performance[machineInfo.p_state] * machineInfo.num_cpus;
@@ -77,11 +67,6 @@ double getMachineCurUtil(MachineWithVMs machine, Time_t now) {
 double getEstimatedTaskUtil(MachineWithVMs machine, TaskId_t task_id, Time_t curr) {
     TaskInfo_t task = GetTaskInfo(task_id);
 
-    // // somehow, remaining_instr is subject to unsigned integer overflow
-    // if (info.remaining_instructions > info.total_instructions) {
-    //     return 0;
-    // }
-
     uint64_t remainingInstructions = task.remaining_instructions;
     uint64_t timeLeft = task.target_completion - curr;
 
@@ -98,31 +83,17 @@ Priority_t GetTaskPriorityFromSLA(TaskId_t task_id) {
       case SLA0:
         return HIGH_PRIORITY;
       case SLA1:
-        return MID_PRIORITY;
+        return HIGH_PRIORITY;
+      // case SLA2:
+      //   return MID_PRIORITY;
       default:
-        return LOW_PRIORITY;
+        return MID_PRIORITY;
     }
 }
 
-
-
-
-
-// unordered_map<unsigned, stateChangeInfo> idle_adjust_set;
-
-// // For Idle set adjustment
-// const uint64_t SECOND = 1000000;
-// unsigned desired_idle_set_size;
-
-// uint64_t last_time = 0;
-// uint64_t wait_queue_time = 0;
-
-// deque<unsigned> queue;
-
-
-
 // Find a vm on the given machine for the task (or create one)
 void AddTaskToMachine(MachineWithVMs* machine, TaskId_t task_id) {
+    SimOutput("AddTaskToMachine(): Adding task " + to_string(task_id) + " to machine " + to_string(machine->machine_id), 1);
     MachineInfo_t machineInfo = Machine_GetInfo(machine->machine_id);
     TaskInfo_t taskInfo = GetTaskInfo(task_id);
 
@@ -134,78 +105,68 @@ void AddTaskToMachine(MachineWithVMs* machine, TaskId_t task_id) {
     }
 
     VMId_t newVM = VM_Create(taskInfo.required_vm, machineInfo.cpu);
-    VM_Attach(newVM, machine.machine_id);
+    VM_Attach(newVM, machine->machine_id);
     VM_AddTask(newVM, task_id, GetTaskPriorityFromSLA(taskInfo.required_sla));
-    machine.vms.push_back(newVM);
+    machine->vms.push_back(newVM);
 
     return;
 }
 
-class MachineWithVMs {
-public:
-    MachineId_t machine_id;
-    vector<VMId_t> vms;
-
-    MachineWithVMs() = default;
-    MachineWithVMs(MachineId_t id) : machine_id(id) {}
-};
-
 const float INIT_RUNNING = 0.5;
 const float INIT_INTERMEDIATE = 0.2;
-const float INIT_OFF = 0.3;
+// const float INIT_OFF = 0.3;
 
 const MachineState_t RUNNING_STATE = S0;
 const MachineState_t INTERMEDIATE_STATE = S2;
-const MachineState_t OFF_STATE = S4;
+const MachineState_t OFF_STATE = S3;
 
-vector<vector<MachineWithVMs*>> machinesByCPUType;
+vector<vector<MachineWithVMs*>> machinesByCPUType; // size 4
 
-vector<vector<MachineWithVMs*>> running;
-vector<vector<MachineWithVMs*>> intermediate;
-vector<vector<MachineWithVMs*>> off;
+vector<vector<MachineWithVMs*>> running; // size 4
+vector<vector<MachineWithVMs*>> intermediate; // size 4
+vector<vector<MachineWithVMs*>> off; // size 4
 
-unordered_map<MachineId_t, stateChangeInfo> curChangingState;
-
-struct stateChangeInfo {
+struct stateChange {
     MachineState_t oldState; // prev state of machine
     MachineState_t newState; // new state of machine
-    TaskId_t* task; // if non-null, task to be assigned after state change
+    int task; // task to be assigned after state change, -1 if no task
 };
 
-void Scheduler::Init() {
-    // Find the parameters of the clusters
-    // Get the total number of machines
-    // For each machine:
-    //      Get the type of the machine
-    //      Get the memory of the machine
-    //      Get the number of CPUs
-    //      Get if there is a GPU or not
-    
-    total_machines = Machine_GetTotal();
+unordered_map<MachineId_t, stateChange> curChangingState;
 
-    // // we have four cpus
-    // for(int i = 0 ; i < 4; i++) {
-    //     vector<uint64_t> temp = {};
-    //     machine_by_cpus.push_back(temp);
-    //     vector<uint64_t> temp2 = {};
-    //     running.push_back(temp2);
-    //     vector<uint64_t> temp3 = {};
-    //     idle.push_back(temp3);        
-    //     vector<uint64_t> temp4 = {};
-    //     off.push_back(temp4);
-    // }
+deque<TaskId_t> tasksWaiting;
+
+void Scheduler::Init() {    
+    SimOutput("Begin initialization", 1);
+
+    total_machines = Machine_GetTotal();
+    machinesByCPUType.resize(4); // four cpu types: ARM, POWER, RISCV, X86
+    running.resize(4);
+    intermediate.resize(4);
+    off.resize(4);
+    for(int i = 0 ; i < 4; i++) {
+        vector<MachineWithVMs*> cpu = {};
+        machinesByCPUType[i] = cpu;
+        
+        vector<MachineWithVMs*> runList = {};
+        running[i] = runList;
+
+        vector<MachineWithVMs*> interList = {};
+        intermediate[i] = interList;
+
+        vector<MachineWithVMs*> offList = {};
+        off[i] = offList;
+    }
+
     
-    for(int i = 0; i < total_machines; i++) {
+    for(unsigned i = 0; i < total_machines; i++) {
         CPUType_t CPU = Machine_GetInfo((MachineId_t) i).cpu;
 
         MachineWithVMs* machine = new MachineWithVMs(i);
         machinesByCPUType[CPU].push_back(machine);
-
-        // vector<MachineId_t> temp = {};
-        // machine_matrix.push_back(temp);
     }
 
-    for(int i = 0; i < machinesByCPUType.size(); i++) {
+    for(unsigned i = 0; i < machinesByCPUType.size(); i++) {
         int num_running = ceil((double) machinesByCPUType[i].size() * INIT_RUNNING);
         int num_intermediate = ceil((double) machinesByCPUType[i].size() * INIT_INTERMEDIATE);
 
@@ -214,21 +175,29 @@ void Scheduler::Init() {
         }
 
         for(int j = num_running; j < num_running + num_intermediate; j++) {
+            SimOutput("Scheduler::Init(): Setting machine " + to_string(machinesByCPUType[i][j]->machine_id) + " to INTERMEDIATE_STATE", 1);
+
             Machine_SetState(machinesByCPUType[i][j]->machine_id, INTERMEDIATE_STATE);
-            curChangingState[machinesByCPUType[i][j]->machine_id] = {RUNNING_STATE, INTERMEDIATE_STATE, nullptr};
+            curChangingState[machinesByCPUType[i][j]->machine_id] = {RUNNING_STATE, INTERMEDIATE_STATE, -1};
         }
-        for(int j = num_running + num_intermediate; j < machinesByCPUType[i].size(); j++) {
+        for(unsigned j = num_running + num_intermediate; j < machinesByCPUType[i].size(); j++) {
+            SimOutput("Scheduler::Init(): Setting machine " + to_string(machinesByCPUType[i][j]->machine_id) + " to OFF_STATE", 1);
+
             Machine_SetState(machinesByCPUType[i][j]->machine_id, OFF_STATE);
-            curChangingState[machinesByCPUType[i][j]->machine_id] = {RUNNING_STATE, OFF_STATE, nullptr};
+            curChangingState[machinesByCPUType[i][j]->machine_id] = {RUNNING_STATE, OFF_STATE, -1};
         }
     }
+
+    SimOutput("Finished initialization", 1);
 }
 
 void Scheduler::MigrationComplete(Time_t time, VMId_t vm_id) {
-    // Update your data structure. The VM now can receive new tasks
+    // We are not migrating here. We transfer machines between running, intermediate, and off states via heuristics in the PeriodicCheck function.
 }
 
 void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
+    SimOutput("Scheduler::NewTask(): New task " + to_string(task_id) + " arrived at " + to_string(now), 1);
+
     TaskInfo_t task = GetTaskInfo(task_id);
 
     for (MachineWithVMs* machine : running[task.required_cpu]) {
@@ -242,7 +211,7 @@ void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
 
         unsigned machineMaxMem = Machine_GetInfo(machine->machine_id).memory_size;
         unsigned machineUsedMem = Machine_GetInfo(machine->machine_id).memory_used;
-        bool canHandleTaskMem = machineUsedMem + task.required_memory + VM_MEMORY_OVERHEAD;
+        bool canHandleTaskMem = machineUsedMem + task.required_memory + VM_MEMORY_OVERHEAD < machineMaxMem;
 
         bool currentlyChangingState = curChangingState.count(machine->machine_id) > 0;
 
@@ -259,13 +228,13 @@ void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
 
         unsigned machineMaxMem = Machine_GetInfo(machine->machine_id).memory_size;
         unsigned machineUsedMem = Machine_GetInfo(machine->machine_id).memory_used;
-        bool canHandleTaskMem = machineUsedMem + task.required_memory + VM_MEMORY_OVERHEAD;
+        bool canHandleTaskMem = machineUsedMem + task.required_memory + VM_MEMORY_OVERHEAD < machineMaxMem;
 
         bool currentlyChangingState = curChangingState.count(machine->machine_id) > 0;
 
         if (!currentlyChangingState && canHandleTaskMem) {
             Machine_SetState(machine->machine_id, RUNNING_STATE);
-            curChangingState[machine->machine_id] = {INTERMEDIATE_STATE, RUNNING_STATE, &task_id};
+            curChangingState[machine->machine_id] = {INTERMEDIATE_STATE, RUNNING_STATE, int(task_id)};
             return;
         }
     }
@@ -277,214 +246,245 @@ void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
 
       unsigned machineMaxMem = Machine_GetInfo(machine->machine_id).memory_size;
       unsigned machineUsedMem = Machine_GetInfo(machine->machine_id).memory_used;
-      bool canHandleTaskMem = machineUsedMem + task.required_memory + VM_MEMORY_OVERHEAD;
+      bool canHandleTaskMem = machineUsedMem + task.required_memory + VM_MEMORY_OVERHEAD < machineMaxMem;
 
       bool currentlyChangingState = curChangingState.count(machine->machine_id) > 0;
 
       if (!currentlyChangingState && canHandleTaskMem) {
           Machine_SetState(machine->machine_id, RUNNING_STATE);
-          curChangingState[machine->machine_id] = {OFF_STATE, RUNNING_STATE, &task_id};
+          curChangingState[machine->machine_id] = {OFF_STATE, RUNNING_STATE, int(task_id)};
           return;
       }
     }
 
-    queue.push_back(task_id); // could not schedule the task now, put it in the waiting queue
+    tasksWaiting.push_back(task_id); // task is waiting to run
 }
 
-void updateWaitingQueue(Time_t now) {
+void popWaitingTask(Time_t now) {
     //pop off tasks that are waiting
-    while(queue.size() > 0) {
-        TaskId_t task_id = queue[0];
+    while(tasksWaiting.size() > 0 ) {
+        SimOutput("Scheduler::popWaitingTask(): Task queue not empty with size " + to_string(tasksWaiting.size()) + ". Attempting to pop ONE waiting task (id: " + to_string(tasksWaiting[0]) + " ) at " + to_string(now), 1);
+
+        TaskId_t task_id = tasksWaiting[0];
         TaskInfo_t task = GetTaskInfo(task_id);
+
+        if (task.completed) {
+          ThrowException("popWaitingTask(): Task " + to_string(task_id) + " is already completed but still in waiting queue");
+        }
+
         CPUType_t task_cpu = task.required_cpu;
         bool done = false;
-        for (MachineId_t id : running[task_cpu]) {
-            MachineInfo_t machine = Machine_GetInfo(id);
+        for (MachineWithVMs* machine : running[task_cpu]) {
+            if (task.required_cpu != Machine_GetInfo(machine->machine_id).cpu) {
+                ThrowException("CPU type mismatch in NewTask"); // this shouldn't happen since we index into running by CPU type
+            }
 
-            double machine_util = machine_eff_mips(id, now);
-            double task_util = task_eff_mips(task_id, id, now);
-            double machine_max_util = machine.performance[machine.p_state] * machine.num_cpus;
+            double machineCurUtil = getMachineCurUtil(*machine, now);
+            double taskUtilEstimate = getEstimatedTaskUtil(*machine, task_id, now);
+            bool canHandleTaskUtil = machineCurUtil + taskUtilEstimate <= 0.999;
 
-            bool correct_cpu = task.required_cpu == machine.cpu;
-            bool enough_mem = machine.memory_used + task.required_memory + 8 < machine.memory_size;
-            bool enough_util = machine_util + task_util <= machine_max_util;
+            unsigned machineMaxMem = Machine_GetInfo(machine->machine_id).memory_size;
+            unsigned machineUsedMem = Machine_GetInfo(machine->machine_id).memory_used;
+            bool canHandleTaskMem = machineUsedMem + task.required_memory + VM_MEMORY_OVERHEAD < machineMaxMem;
+            
+            bool currentlyChangingState = curChangingState.count(machine->machine_id) > 0;
+            if (!currentlyChangingState && canHandleTaskUtil && canHandleTaskMem) {
 
-            // dev notes: data struct to keep track of vm by vm_type?
-            // dev notes: is the change_state.count required?
-            if (!changing_state.count(id) && correct_cpu && enough_mem && enough_util) {
-                FindVMAddTask(id, task_id);
-                queue.pop_front();
+                AddTaskToMachine(machine, task_id);
+                tasksWaiting.pop_front();
                 done = true;
                 break;
             }
         }
-        if(done) {
+    
+        if (done) {
             continue;
         }
 
-        for (MachineId_t id : idle[task_cpu]) {
-            MachineInfo_t machine = Machine_GetInfo(id);
-
-            bool correct_cpu = task.required_cpu == machine.cpu;
-            bool enough_mem = machine.memory_used + task.required_memory + 8 < machine.memory_size;
-
-            // dev notes: state change issues? (if idle is moving around)
-            // dev notes: is the change_state.count required?
-            if (!changing_state.count(id) && correct_cpu && enough_mem) {
-                // dev notes: state change issues?
-                Machine_SetState(id, RUNNING_S_STATE);
-                changing_state[id] = {IDLE_S_STATE, RUNNING_S_STATE, true, task_id};
-                queue.pop_front();
-                done = true;
-                break;
+        for (MachineWithVMs* machine : intermediate[task_cpu]) {
+            if (task.required_cpu != Machine_GetInfo(machine->machine_id).cpu) {
+                ThrowException("CPU type mismatch in NewTask"); // this shouldn't happen since we index into running by CPU type
             }
-        }
-        if(done) {
-            continue;
-        }
 
-        for (MachineId_t id : off[task_cpu]) {
-            MachineInfo_t machine = Machine_GetInfo(id);
+            unsigned machineMaxMem = Machine_GetInfo(machine->machine_id).memory_size;
+            unsigned machineUsedMem = Machine_GetInfo(machine->machine_id).memory_used;
+            bool canHandleTaskMem = machineUsedMem + task.required_memory + VM_MEMORY_OVERHEAD < machineMaxMem;
 
-            bool correct_cpu = task.required_cpu == machine.cpu;
-            bool enough_mem = machine.memory_used + task.required_memory + 8 < machine.memory_size;
-
-            // dev notes: state change issues? (if idle is moving around)
-            // dev notes: is the change_state.count required?
-            if (!changing_state.count(id) && correct_cpu && enough_mem) {
-                // dev notes: state change issues?
-                Machine_SetState(id, RUNNING_S_STATE);
-                changing_state[id] = {OFF_S_STATE, RUNNING_S_STATE, true, task_id};
-                queue.pop_front();
+            bool currentlyChangingState = curChangingState.count(machine->machine_id) > 0;
+            if (!currentlyChangingState && canHandleTaskMem) {
+                Machine_SetState(machine->machine_id, RUNNING_STATE);
+                curChangingState[machine->machine_id] = {INTERMEDIATE_STATE, RUNNING_STATE, int(task_id)};
+                tasksWaiting.pop_front();
                 done = true;
                 break;
             }
         }
 
-        if(done) {
+        if (done) {
             continue;
         }
+
+        for (MachineWithVMs* machine : off[task_cpu]) {
+            if (task.required_cpu != Machine_GetInfo(machine->machine_id).cpu) {
+                ThrowException("CPU type mismatch in NewTask"); // this shouldn't happen since we index into running by CPU type
+            }
+
+            unsigned machineMaxMem = Machine_GetInfo(machine->machine_id).memory_size;
+            unsigned machineUsedMem = Machine_GetInfo(machine->machine_id).memory_used;
+            bool canHandleTaskMem = machineUsedMem + task.required_memory + VM_MEMORY_OVERHEAD < machineMaxMem;
+
+            bool currentlyChangingState = curChangingState.count(machine->machine_id) > 0;
+
+            if (!currentlyChangingState && canHandleTaskMem) {
+                unsigned taskId = task_id;
+                Machine_SetState(machine->machine_id, RUNNING_STATE);
+                curChangingState[machine->machine_id] = {OFF_STATE, RUNNING_STATE, int(taskId)};
+                tasksWaiting.pop_front();
+                done = true;
+                break;
+            }
+        }
+
+        if (done) {
+            continue;
+        }
+
         break;
     }
 }
+
+const Time_t SECOND = 1000000;
+
+Time_t lastTaskWaitQueueCheck = 0;
+Time_t taskWaitQueueCheckInterval = SECOND / 10;
+
+Time_t lastPoolAdjustmentCheck = 0;
+Time_t poolAdjustmentCheckInterval = SECOND;
+
+const double UTIL_THRESHOLD_RUNNING = 0.7;
+const double UTIL_THRESHOLD_IDLE = 0.3;
 
 void Scheduler::PeriodicCheck(Time_t now) {
     // This method should be called from SchedulerCheck()
     // SchedulerCheck is called periodically by the simulator to allow you to monitor, make decisions, adjustments, etc.
     // Unlike the other invocations of the scheduler, this one doesn't report any specific event
     // Recommendation: Take advantage of this function to do some monitoring and adjustments as necessary
-    // about 1 sec between checks
-    
-    if(now - wait_queue_time >= SECOND / 10) {
-        wait_queue_time = now;
-        updateWaitingQueue(now);
+
+    if(now - lastTaskWaitQueueCheck >= taskWaitQueueCheckInterval) {
+        lastTaskWaitQueueCheck = now;
+        popWaitingTask(now);
     }
 
-    if(now - last_time >= SECOND) {
-        last_time = now;
-        for(int i = 0; i < 4; i++) {
-            if(machine_by_cpus[i].size() != 0) {
-                unsigned cpu_total_mips = 0;
-                unsigned cpu_max_mips = 0;
-                
-                for (MachineId_t id : running[i]) {
-                    MachineInfo_t info = Machine_GetInfo(id);
-                    cpu_total_mips += machine_eff_mips(id, now);
-                    cpu_max_mips += info.performance[info.p_state] * info.num_cpus;
-                }
-                
-                double cpu_util = cpu_max_mips == 0 ? 0 : (double) cpu_total_mips / (double) cpu_max_mips;
+    if(now - lastPoolAdjustmentCheck >= poolAdjustmentCheckInterval) {
+        SimOutput("Scheduler::PeriodicCheck(): Adjusting machine pools at " + to_string(now), 1);
 
-                if (cpu_util > 0.7) {
-                    double theoretical_util = cpu_util;
-                    
-                    unsigned idle_index = 0;
-                    while (idle_index < idle[i].size() && theoretical_util > 0.7) {
-                        MachineId_t id = idle[i][idle_index];
-                        if(!changing_state.count(id)) {
-                            Machine_SetState(id, RUNNING_S_STATE);
-                            changing_state[id] = {IDLE_S_STATE, RUNNING_S_STATE, false, 0};
-                            
-                            MachineInfo_t info = Machine_GetInfo(id);
-                            cpu_max_mips += info.performance[P0] * info.num_cpus;
-                            theoretical_util = cpu_max_mips == 0 ? 0 : cpu_total_mips / cpu_max_mips;
+        lastPoolAdjustmentCheck = now;
+        for(int i = 0; i < 4; i++) { // cycle through every machine type
+            if(machinesByCPUType[i].size() > 0) {
+
+                double totalCompute = 0;
+                double maxCompute = 0;
+                
+                for (MachineWithVMs* machine : running[i]) {
+                    totalCompute += machineCurMips(*machine, now);
+                    maxCompute += machineMaxMips(*machine);
+                }
+
+                double totalRunningUtil = totalCompute / maxCompute;
+
+                if (totalRunningUtil > UTIL_THRESHOLD_RUNNING) {
+                    unsigned intermediateIdx = 0;
+                    while (intermediateIdx < intermediate[i].size() && totalRunningUtil > UTIL_THRESHOLD_RUNNING) {
+                        MachineWithVMs* machine = intermediate[i][intermediateIdx];
+                        if(!curChangingState.count(machine->machine_id)) {
+                            Machine_SetState(machine->machine_id, RUNNING_STATE);
+                            curChangingState[machine->machine_id] = {INTERMEDIATE_STATE, RUNNING_STATE, -1}; // ready up 
+
+                            MachineInfo_t info = Machine_GetInfo(machine->machine_id);
+                            maxCompute += machineMaxMips(*machine);
+                            totalRunningUtil = totalCompute / maxCompute;
                         }
 
-                        idle_index++;
+                        intermediateIdx++;
                     }
             
-                    //idle change did not solve it
-                    unsigned off_index = 0;
-                    while (off_index < off[i].size() && theoretical_util > 0.7) {
-                        MachineId_t id = off[i][off_index];
-                        if(!changing_state.count(id)) {
-                            Machine_SetState(id, RUNNING_S_STATE);
-                            changing_state[id] = {OFF_S_STATE, RUNNING_S_STATE, false, 0};
-                            
-                            MachineInfo_t info = Machine_GetInfo(id);
-                            cpu_max_mips += info.performance[P0] * info.num_cpus;
-                            theoretical_util = cpu_max_mips == 0 ? 0 : cpu_total_mips / cpu_max_mips;
+                    // Lets wake up some from the off state if we are still above threshold
+                    unsigned offIdx = 0;
+                    while (offIdx < off[i].size() && totalRunningUtil > UTIL_THRESHOLD_RUNNING) {
+                        MachineWithVMs* machine = off[i][offIdx];
+                        if(!curChangingState.count(machine->machine_id)) {
+                            Machine_SetState(machine->machine_id, RUNNING_STATE);
+                            curChangingState[machine->machine_id] = {OFF_STATE, RUNNING_STATE, -1};
+
+                            MachineInfo_t info = Machine_GetInfo(machine->machine_id);
+                            maxCompute += machineMaxMips(*machine);
+                            totalRunningUtil = totalCompute / maxCompute;
                         }
 
-                        off_index++;
+                        offIdx++;
                     }
 
-                    //check if idle size is too small
-                    int idle_size = idle[i].size();
-                    unsigned offset_index = 0;
-                    while(offset_index < idle_size && idle_size < machine_by_cpus[i].size() * 0.2) {
-                        MachineId_t id = off[i][offset_index];
-                        if(!changing_state.count(id)) {
-                            Machine_SetState(id, IDLE_S_STATE);
-                            changing_state[id] = {OFF_S_STATE, IDLE_S_STATE, false, 0};
-                            idle_size++;
+                    // migrate some from off to intermediate if below threshold
+                    int j = 0;
+                    int numOffMachines = off[i].size();
+                    int numIntermediateMachines = intermediate[i].size();
+                    int totalMachines = machinesByCPUType[i].size();
+                    while(j < numOffMachines && numIntermediateMachines < (totalMachines * INIT_INTERMEDIATE)) {
+                        MachineWithVMs *machine = off[i][j];
+                        if(!curChangingState.count(machine->machine_id)) {
+                            Machine_SetState(machine->machine_id, INTERMEDIATE_STATE);
+                            curChangingState[machine->machine_id] = {OFF_STATE, INTERMEDIATE_STATE, -1};
+                            numIntermediateMachines++;
                         }
 
-                        offset_index++;
+                        j++;
                     }
 
-                } else if (cpu_util < 0.3) {
-
-                    double theoretical_util = cpu_util;
+                    return;
+                }
+                
+                if (totalRunningUtil < UTIL_THRESHOLD_IDLE) {
                     
-                    unsigned index = 0;
-                    while (index < running[i].size() && theoretical_util < 0.3) {
-                        MachineId_t id = running[i][index];
-                        if(machine_eff_mips(id, now) == 0.0) {
-                            if (!changing_state.count(id)) {
-                                Machine_SetState(id, IDLE_S_STATE);
-                                changing_state[id] = {RUNNING_S_STATE, IDLE_S_STATE, false, 0};
+                    unsigned runningIdx = 0;
+                    while (runningIdx < running[i].size() && totalRunningUtil < UTIL_THRESHOLD_IDLE) {
+                        MachineWithVMs* machine = running[i][runningIdx];
 
-                                MachineInfo_t info = Machine_GetInfo(id);
+                        bool canBeIdled = machineCurMips(*machine, now) == 0.0;
+                        if(canBeIdled && !curChangingState.count(machine->machine_id)) {
+                            Machine_SetState(machine->machine_id, INTERMEDIATE_STATE);
+                            curChangingState[machine->machine_id] = {RUNNING_STATE, INTERMEDIATE_STATE, -1};
 
-                                if (info.performance[P0] * info.num_cpus > cpu_max_mips) {
-                                    break;
-                                }
+                            double lostMips = machineMaxMips(*machine);
 
-                                cpu_max_mips -= info.performance[P0] * info.num_cpus;
-
-                                theoretical_util = cpu_max_mips == 0 ? 0 : cpu_total_mips / cpu_max_mips;
+                            if (lostMips < maxCompute) {
+                                maxCompute -= lostMips;
+                                totalRunningUtil = totalCompute / maxCompute;
+                            } else {
+                                break;
                             }
                         }
 
-                        index++;
+                        runningIdx++;
                     }
 
-                    //check if idle size is too big
-                    int idle_size = idle[i].size();
-                    unsigned idle_index = 0;
-                    while(idle_index < idle_size && idle_size > (double) machine_by_cpus[i].size() * 0.5) {
-                        MachineId_t id = idle[i][idle_index];
-                        if(!changing_state.count(id)) {
-                            Machine_SetState(id, OFF_S_STATE);
-                            changing_state[id] = {IDLE_S_STATE, OFF_S_STATE, false, 0};
-                            idle_size--;
+                    // migrate from intermediate to off
+                    int numIntermediateMachines = intermediate[i].size();
+                    int end = numIntermediateMachines;
+                    int totalMachines = machinesByCPUType[i].size();
+                    int j = 0;
+                    while(j < end && numIntermediateMachines > (totalMachines * INIT_RUNNING)) {
+                        MachineWithVMs *machine = intermediate[i][j];
+                        if(!curChangingState.count(machine->machine_id)) {
+                            Machine_SetState(machine->machine_id, OFF_STATE);
+                            curChangingState[machine->machine_id] = {INTERMEDIATE_STATE, OFF_STATE, -1};
+                            numIntermediateMachines--;
                         }
-                        idle_index++;
+                        j++;
                     }
                 }
             }
         }
+        SimOutput("Scheduler::PeriodicCheck(): Finished adjusting machine pools at " + to_string(now), 1);
     }
 }
 
@@ -557,13 +557,14 @@ void SimulationComplete(Time_t time) {
 }
 
 void SLAWarning(Time_t time, TaskId_t task_id) {
-    
+    SimOutput("SLAWarning(): SLA violation warning for task " + to_string(task_id) + " at time " + to_string(time), 1);
 }
 
 void StateChangeComplete(Time_t time, MachineId_t machine_id) {
-    stateChangeInfo info = curChangingState[machine_id];
+    SimOutput("StateChangeComplete(): State change completed for machine " + to_string(machine_id) + " at time " + to_string(time) + "", 1);
+    stateChange info = curChangingState[machine_id];
 
-    MachineWithVMs* machine;
+    MachineWithVMs* machine = nullptr;
     for (MachineWithVMs* m : machinesByCPUType[Machine_GetInfo(machine_id).cpu]) {
         if (m->machine_id == machine_id) {
             machine = m;
@@ -571,33 +572,65 @@ void StateChangeComplete(Time_t time, MachineId_t machine_id) {
         }
     }
 
+    if (machine == nullptr) {
+        ThrowException("StateChangeComplete(): Could not find machine " + to_string(machine_id));
+    }
+
     if (Machine_GetInfo(machine_id).s_state != info.newState) {
         ThrowException("StateChangeComplete(): State change did not complete successfully for machine " + to_string(machine_id));
     }
     
-    // either idle machine or off machine woken for task assignment
-    if (info.newState == RUNNING_STATE && info.task != nullptr) {
-        AddTaskToMachine(machine, *info.task);
+    // machine was woken up to run a task, so let's run that task
+    if (info.newState == RUNNING_STATE && info.task != -1) {
+        SimOutput("Adding a queued task " + to_string(info.task) + " to machine " + to_string(machine_id) + " after state change", 1);
+        AddTaskToMachine(machine, info.task);
     }
 
-    CPUType_t machine_cpu = Machine_GetInfo(machine_id).cpu;
-    // dev notes: state change issues?
+    // remove machine from old state list
+    CPUType_t cpu = Machine_GetInfo(machine_id).cpu;
     if (info.oldState == RUNNING_STATE) {
-        running[machine_cpu].erase(remove(running[machine_cpu].begin(), running[machine_cpu].end(), machine_id), running[machine_cpu].end());
-    } else if (info.old_state == IDLE_S_STATE) {
-        idle[machine_cpu].erase(remove(idle[machine_cpu].begin(), idle[machine_cpu].end(), machine_id), idle[machine_cpu].end());
+        running[cpu].erase(
+            remove_if(
+                running[cpu].begin(),
+                running[cpu].end(),
+                [machine_id](MachineWithVMs* machine) {
+                    return machine->machine_id == machine_id;
+                }
+            ),
+            running[cpu].end()
+        );
+    } else if (info.oldState == INTERMEDIATE_STATE) {
+        intermediate[cpu].erase(
+            remove_if(
+                intermediate[cpu].begin(),
+                intermediate[cpu].end(),
+                [machine_id](MachineWithVMs* machine) {
+                    return machine->machine_id == machine_id;
+                }
+            ),
+            intermediate[cpu].end()
+        );
     } else {
-        off[machine_cpu].erase(remove(off[machine_cpu].begin(), off[machine_cpu].end(), machine_id), off[machine_cpu].end());
+        off[cpu].erase(
+            remove_if(
+                off[cpu].begin(),
+                off[cpu].end(),
+                [machine_id](MachineWithVMs* machine) {
+                    return machine->machine_id == machine_id;
+                }
+            ),
+            off[cpu].end()
+        );
     }
 
-    // dev notes: state change issues?
-    if (info.new_state == RUNNING_S_STATE) {
-        running[machine_cpu].push_back(machine_id);
-    } else if (info.old_state == IDLE_S_STATE) {
-        idle[machine_cpu].push_back(machine_id);
+    // add machine to new state list
+    if (info.newState == RUNNING_STATE) {
+        running[cpu].push_back(machine);
+    } else if (info.newState == INTERMEDIATE_STATE) {
+        intermediate[cpu].push_back(machine);
     } else {
-        off[machine_cpu].push_back(machine_id);
+        off[cpu].push_back(machine);
     }
 
-    changing_state.erase(machine_id);
+    curChangingState.erase(machine_id);
 }

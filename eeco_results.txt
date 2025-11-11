@@ -1,0 +1,81 @@
+make: Nothing to be done for 'all'.
+Running e-eco algorithm with input file: input_files/AnHour.md
+SLA violation report
+SLA0: 42.8571%
+SLA1: 1.27217%
+SLA2: 4.71902%
+Total Energy 2.5871KW-Hour
+Simulation run finished in 3603.48 seconds
+----------------------------------------
+Running e-eco algorithm with input file: input_files/BigSmall
+SLA violation report
+SLA0: 9.68547%
+SLA1: 32.9268%
+SLA2: 0%
+Total Energy 0.0305662KW-Hour
+Simulation run finished in 36.84 seconds
+----------------------------------------
+Running e-eco algorithm with input file: input_files/Day
+SLA violation report
+SLA0: 0%
+SLA1: 0%
+SLA2: 0.0417655%
+Total Energy 24.022KW-Hour
+Simulation run finished in 86401.1 seconds
+----------------------------------------
+Running e-eco algorithm with input file: input_files/GentlerHour
+SLA violation report
+SLA0: 6.19048%
+SLA1: 7.60842%
+SLA2: 0%
+Total Energy 2.33427KW-Hour
+Simulation run finished in 3603.48 seconds
+----------------------------------------
+Running e-eco algorithm with input file: input_files/Input.md
+SLA violation report
+SLA0: 0%
+SLA1: 0%
+SLA2: 0%
+Total Energy 0.00991043KW-Hour
+Simulation run finished in 8.94 seconds
+----------------------------------------
+Running e-eco algorithm with input file: input_files/MatchMeIfYouCan
+SLA violation report
+SLA0: 9.66051%
+SLA1: 35.3659%
+SLA2: 0%
+Total Energy 0.0723785KW-Hour
+Simulation run finished in 36.78 seconds
+----------------------------------------
+Running e-eco algorithm with input file: input_files/NiceAndSmooth
+SLA violation report
+SLA0: 0%
+SLA1: 0%
+SLA2: 0%
+Total Energy 0.00631691KW-Hour
+Simulation run finished in 16.68 seconds
+----------------------------------------
+Running e-eco algorithm with input file: input_files/SpikeyMean
+SLA violation report
+SLA0: 9.26111%
+SLA1: 36.5854%
+SLA2: 0%
+Total Energy 0.0271695KW-Hour
+Simulation run finished in 36.72 seconds
+----------------------------------------
+Running e-eco algorithm with input file: input_files/SpikeyNefarious
+SLA violation report
+SLA0: 9.20635%
+SLA1: 14.6341%
+SLA2: 0%
+Total Energy 0.0152624KW-Hour
+Simulation run finished in 35.1 seconds
+----------------------------------------
+Running e-eco algorithm with input file: input_files/TallShort
+SLA violation report
+SLA0: 63.355%
+SLA1: 18.2927%
+SLA2: 0%
+Total Energy 0.0882067KW-Hour
+Simulation run finished in 271.44 seconds
+----------------------------------------
