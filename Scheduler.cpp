@@ -15,6 +15,25 @@
 #include <math.h>
 #include <deque>
 
+const Time_t SECOND = 1000000;
+Time_t lastTaskWaitQueueCheck = 0;
+Time_t lastPoolAdjustmentCheck = 0;
+
+// HYPERPARAMETERS
+Time_t taskWaitQueueCheckInterval = SECOND / 10;
+Time_t poolAdjustmentCheckInterval = SECOND;
+
+const double UTIL_THRESHOLD_RUNNING = 0.7;
+const double UTIL_THRESHOLD_IDLE = 0.3;
+
+const float INIT_RUNNING = 0.5;
+const float INIT_INTERMEDIATE = 0.3;
+// const float INIT_OFF = 0.2;
+
+const MachineState_t RUNNING_STATE = S0;
+const MachineState_t INTERMEDIATE_STATE = S2;
+const MachineState_t OFF_STATE = S3;
+
 unsigned total_machines;
 
 // track machines and their assigned VMs
@@ -43,11 +62,6 @@ double machineCurMips(MachineWithVMs machine, Time_t now) {
 
             uint64_t remainingInstructions = task.remaining_instructions;
             uint64_t timeLeft = task.target_completion - now;
-
-            // // somehow, remaining_instr is subject to unsigned integer overflow
-            // if (remainingInstru > info.total_instructions) {
-            //     continue;
-            // }
 
             mips += (double) remainingInstructions / (double) timeLeft;
         }
@@ -78,16 +92,15 @@ double getEstimatedTaskUtil(MachineWithVMs machine, TaskId_t task_id, Time_t cur
 // Converts SLA to Priority
 Priority_t GetTaskPriorityFromSLA(TaskId_t task_id) {
     SLAType_t sla = GetTaskInfo(task_id).required_sla;
-
     switch (sla) {
       case SLA0:
         return HIGH_PRIORITY;
       case SLA1:
-        return HIGH_PRIORITY;
-      // case SLA2:
-      //   return MID_PRIORITY;
-      default:
         return MID_PRIORITY;
+      case SLA2: 
+        return MID_PRIORITY;
+      default:
+        return LOW_PRIORITY;
     }
 }
 
@@ -111,14 +124,6 @@ void AddTaskToMachine(MachineWithVMs* machine, TaskId_t task_id) {
 
     return;
 }
-
-const float INIT_RUNNING = 0.5;
-const float INIT_INTERMEDIATE = 0.2;
-// const float INIT_OFF = 0.3;
-
-const MachineState_t RUNNING_STATE = S0;
-const MachineState_t INTERMEDIATE_STATE = S2;
-const MachineState_t OFF_STATE = S3;
 
 vector<vector<MachineWithVMs*>> machinesByCPUType; // size 4
 
@@ -157,7 +162,6 @@ void Scheduler::Init() {
         vector<MachineWithVMs*> offList = {};
         off[i] = offList;
     }
-
     
     for(unsigned i = 0; i < total_machines; i++) {
         CPUType_t CPU = Machine_GetInfo((MachineId_t) i).cpu;
@@ -195,6 +199,10 @@ void Scheduler::MigrationComplete(Time_t time, VMId_t vm_id) {
     // We are not migrating here. We transfer machines between running, intermediate, and off states via heuristics in the PeriodicCheck function.
 }
 
+// for some stats
+int numTasksAssignedToIdleMachines = 0;
+int numTasksAssignedToOffMachines = 0;
+
 void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
     SimOutput("Scheduler::NewTask(): New task " + to_string(task_id) + " arrived at " + to_string(now), 1);
 
@@ -216,6 +224,8 @@ void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
         bool currentlyChangingState = curChangingState.count(machine->machine_id) > 0;
 
         if (!currentlyChangingState && canHandleTaskUtil && canHandleTaskMem) {
+            SimOutput("Scheduler::NewTask(): Assigning task to already running machine.", 1);
+
             AddTaskToMachine(machine, task_id);
             return;
         }
@@ -233,6 +243,8 @@ void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
         bool currentlyChangingState = curChangingState.count(machine->machine_id) > 0;
 
         if (!currentlyChangingState && canHandleTaskMem) {
+            SimOutput("Scheduler::NewTask(): Assigning task to intermediate machine.", 1);
+            numTasksAssignedToIdleMachines++;
             Machine_SetState(machine->machine_id, RUNNING_STATE);
             curChangingState[machine->machine_id] = {INTERMEDIATE_STATE, RUNNING_STATE, int(task_id)};
             return;
@@ -251,18 +263,23 @@ void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
       bool currentlyChangingState = curChangingState.count(machine->machine_id) > 0;
 
       if (!currentlyChangingState && canHandleTaskMem) {
+          SimOutput("Scheduler::NewTask(): Assigning task to off machine.", 1);
+          numTasksAssignedToOffMachines++;
           Machine_SetState(machine->machine_id, RUNNING_STATE);
           curChangingState[machine->machine_id] = {OFF_STATE, RUNNING_STATE, int(task_id)};
           return;
       }
     }
 
+    SimOutput("Scheduler::NewTask(): No available machine for task " + to_string(task_id) + ". Adding to waiting queue.", 1);
     tasksWaiting.push_back(task_id); // task is waiting to run
 }
 
 void popWaitingTask(Time_t now) {
-    //pop off tasks that are waiting
+    //pop off tasks that are waiting until we run into a task that can't be run yet
+    int tasksPopped = 0;
     while(tasksWaiting.size() > 0 ) {
+        tasksPopped++;
         SimOutput("Scheduler::popWaitingTask(): Task queue not empty with size " + to_string(tasksWaiting.size()) + ". Attempting to pop ONE waiting task (id: " + to_string(tasksWaiting[0]) + " ) at " + to_string(now), 1);
 
         TaskId_t task_id = tasksWaiting[0];
@@ -273,7 +290,7 @@ void popWaitingTask(Time_t now) {
         }
 
         CPUType_t task_cpu = task.required_cpu;
-        bool done = false;
+        bool taskAssigned = false;
         for (MachineWithVMs* machine : running[task_cpu]) {
             if (task.required_cpu != Machine_GetInfo(machine->machine_id).cpu) {
                 ThrowException("CPU type mismatch in NewTask"); // this shouldn't happen since we index into running by CPU type
@@ -289,15 +306,14 @@ void popWaitingTask(Time_t now) {
             
             bool currentlyChangingState = curChangingState.count(machine->machine_id) > 0;
             if (!currentlyChangingState && canHandleTaskUtil && canHandleTaskMem) {
-
                 AddTaskToMachine(machine, task_id);
                 tasksWaiting.pop_front();
-                done = true;
+                taskAssigned = true;
                 break;
             }
         }
     
-        if (done) {
+        if (taskAssigned) {
             continue;
         }
 
@@ -314,13 +330,14 @@ void popWaitingTask(Time_t now) {
             if (!currentlyChangingState && canHandleTaskMem) {
                 Machine_SetState(machine->machine_id, RUNNING_STATE);
                 curChangingState[machine->machine_id] = {INTERMEDIATE_STATE, RUNNING_STATE, int(task_id)};
+                numTasksAssignedToIdleMachines++;
                 tasksWaiting.pop_front();
-                done = true;
+                taskAssigned = true;
                 break;
             }
         }
 
-        if (done) {
+        if (taskAssigned) {
             continue;
         }
 
@@ -339,36 +356,24 @@ void popWaitingTask(Time_t now) {
                 unsigned taskId = task_id;
                 Machine_SetState(machine->machine_id, RUNNING_STATE);
                 curChangingState[machine->machine_id] = {OFF_STATE, RUNNING_STATE, int(taskId)};
+                numTasksAssignedToOffMachines++;
                 tasksWaiting.pop_front();
-                done = true;
+                taskAssigned = true;
                 break;
             }
         }
 
-        if (done) {
+        if (taskAssigned) {
             continue;
         }
 
+        SimOutput("Scheduler::popWaitingTask(): Could not find machine for waiting task " + to_string(task_id) + ". Leaving in queue.", 1);
         break;
     }
 }
 
-const Time_t SECOND = 1000000;
-
-Time_t lastTaskWaitQueueCheck = 0;
-Time_t taskWaitQueueCheckInterval = SECOND / 10;
-
-Time_t lastPoolAdjustmentCheck = 0;
-Time_t poolAdjustmentCheckInterval = SECOND;
-
-const double UTIL_THRESHOLD_RUNNING = 0.7;
-const double UTIL_THRESHOLD_IDLE = 0.3;
-
 void Scheduler::PeriodicCheck(Time_t now) {
-    // This method should be called from SchedulerCheck()
-    // SchedulerCheck is called periodically by the simulator to allow you to monitor, make decisions, adjustments, etc.
-    // Unlike the other invocations of the scheduler, this one doesn't report any specific event
-    // Recommendation: Take advantage of this function to do some monitoring and adjustments as necessary
+    // transfer machines between running, intermediate, and off states via heuristics and total current utilization
 
     if(now - lastTaskWaitQueueCheck >= taskWaitQueueCheckInterval) {
         lastTaskWaitQueueCheck = now;
@@ -381,7 +386,6 @@ void Scheduler::PeriodicCheck(Time_t now) {
         lastPoolAdjustmentCheck = now;
         for(int i = 0; i < 4; i++) { // cycle through every machine type
             if(machinesByCPUType[i].size() > 0) {
-
                 double totalCompute = 0;
                 double maxCompute = 0;
                 
@@ -432,6 +436,7 @@ void Scheduler::PeriodicCheck(Time_t now) {
                     while(j < numOffMachines && numIntermediateMachines < (totalMachines * INIT_INTERMEDIATE)) {
                         MachineWithVMs *machine = off[i][j];
                         if(!curChangingState.count(machine->machine_id)) {
+                          SimOutput("Scheduler::PeriodicCheck(): Moving machine " + to_string(off[i][j]->machine_id) + " from OFF_STATE to INTERMEDIATE_STATE", 1);
                             Machine_SetState(machine->machine_id, INTERMEDIATE_STATE);
                             curChangingState[machine->machine_id] = {OFF_STATE, INTERMEDIATE_STATE, -1};
                             numIntermediateMachines++;
@@ -474,7 +479,9 @@ void Scheduler::PeriodicCheck(Time_t now) {
                     int j = 0;
                     while(j < end && numIntermediateMachines > (totalMachines * INIT_RUNNING)) {
                         MachineWithVMs *machine = intermediate[i][j];
-                        if(!curChangingState.count(machine->machine_id)) {
+                        bool canBeOffed = machineCurMips(*machine, now) == 0.0;
+                        if(!curChangingState.count(machine->machine_id) && canBeOffed) {
+                            SimOutput("Scheduler::PeriodicCheck(): Moving machine " + to_string(intermediate[i][j]->machine_id) + " from INTERMEDIATE_STATE to OFF_STATE", 1);
                             Machine_SetState(machine->machine_id, OFF_STATE);
                             curChangingState[machine->machine_id] = {INTERMEDIATE_STATE, OFF_STATE, -1};
                             numIntermediateMachines--;
@@ -545,6 +552,9 @@ void SchedulerCheck(Time_t time) {
 
 void SimulationComplete(Time_t time) {
     // This function is called before the simulation terminates Add whatever you feel like.
+    SimOutput("Total tasks completed: " + to_string(GetNumTasks()), 0);
+    SimOutput("Num tasks assigned to idle machines: " + to_string(numTasksAssignedToIdleMachines), 0);
+    SimOutput("Num tasks assigned to off machines: " + to_string(numTasksAssignedToOffMachines), 0);
     cout << "SLA violation report" << endl;
     cout << "SLA0: " << GetSLAReport(SLA0) << "%" << endl;
     cout << "SLA1: " << GetSLAReport(SLA1) << "%" << endl;
