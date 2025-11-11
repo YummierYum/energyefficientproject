@@ -7,9 +7,9 @@
 
 #include <string>
 #include <iostream>
-#include <algorithm>  // <-- FIX 1: Need for std::sort, std::find, std::remove
+#include <algorithm>  
 #include <vector>
-#include <limits>     // <-- FIX 2: Need for std::numeric_limits
+#include <limits>     
 
 #include "Scheduler.hpp"
 
@@ -18,17 +18,13 @@ using namespace std;
 static bool migrating = false;
 static unsigned active_machines = 0;
 
-// This function seems to be missing from the class,
-// but it's used in your sort. I will assume it exists.
-// *** FIX 3: Use . instead of -> ***
+
 double find_energy_consumption(const MachineInfo_t& minfo) {
     double total_energy = 0;
-    // Access struct members with . not ->
     total_energy += minfo.num_cpus * (minfo.c_states[0] + minfo.p_states[0]) + minfo.s_states[0];
     return total_energy;
 }
 
-// --- MIPS-based Helper Functions (based on user's provided logic) ---
 
 // Max MIPS of a machine
 static double machineMaxMips(Machine* machine) {
@@ -75,7 +71,6 @@ static double vmCurMips(VMId_t vm_id, Time_t now) {
 }
 
 
-// Current MIPS-based utilization of a machine (as a fraction)
 static double getMachineCurUtil(Machine* machine, Time_t now) {
     double curMips = machineCurMips(machine, now);
     double maxMips = machineMaxMips(machine);
@@ -83,7 +78,6 @@ static double getMachineCurUtil(Machine* machine, Time_t now) {
     return curMips / maxMips;
 }
 
-// MIPS load a single task will add
 static double getEstimatedTaskMips(TaskId_t task_id, Time_t curr) {
     TaskInfo_t task = GetTaskInfo(task_id);
     if (task.target_completion <= curr) return 0.0; // Task is already late
@@ -93,7 +87,6 @@ static double getEstimatedTaskMips(TaskId_t task_id, Time_t curr) {
 
     return (double) remainingInstructions / (double) timeLeft;
 }
-// --- End of MIPS-based Helper Functions ---
 
 
 void Scheduler::Init() {
@@ -115,7 +108,6 @@ void Scheduler::Init() {
         machine->vms.push_back(vmid); 
         vms.push_back(vmid); 
 
-        // This is a member, so it's fine
         vm_to_machine_map[vmid] = machine;
 
         switch (cputype) {
@@ -127,13 +119,11 @@ void Scheduler::Init() {
         }
     }
 
-    // --- This section was causing errors, let's fix ---
-    // Define the comparison lambda once
+  
     auto compare_by_energy = [](Machine* a, Machine* b) {
         return find_energy_consumption(Machine_GetInfo(a->machine_id)) < find_energy_consumption(Machine_GetInfo(b->machine_id));
     };
 
-    // Use std::sort (from <algorithm>)
     sort(x86_machines.begin(), x86_machines.end(), compare_by_energy);
     sort(arm_machines.begin(), arm_machines.end(), compare_by_energy);
     sort(power_machines.begin(), power_machines.end(), compare_by_energy);
@@ -145,14 +135,11 @@ void Scheduler::MigrationComplete(Time_t time, VMId_t vm_id) {
 }
 
 void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
-    // --- FIX: Determine real task priority at the beginning ---
-    // Get the task's actual priority from the simulator
-    Priority_t priority = GetTaskInfo(task_id).priority;
 
-    // *** FIX 4: Commented out non-existent function ***
-    // SimOutput(GetTaskInfoString(task_id), 1); 
+    Priority_t priority = (RequiredSLA(task_id) == SLA0 || RequiredSLA(task_id) == SLA1) ? HIGH_PRIORITY : MID_PRIORITY;
 
-    // --- FIX: This block was missing ---
+
+    
     CPUType_t task_cpu = RequiredCPUType(task_id);
     vector<Machine*>* possible_machines = nullptr;
     switch (task_cpu) {
@@ -169,11 +156,9 @@ void Scheduler::NewTask(Time_t now, TaskId_t task_id) {
         possible_machines = &riscv_machines;
         break;
     default:
-        // possible_machines will be nullptr, and the 'if' block below
-        // will be correctly skipped.
+       
         break;
     }
-    // --- End of Fix ---
 
     if (possible_machines) {
 
@@ -278,7 +263,7 @@ bool Scheduler::TryConsolidate(std::vector<Machine*>& machine_list, Time_t now) 
         double current_vm_mem = VM_MEMORY_OVERHEAD;
 
         for (TaskId_t tid : vminfo.active_tasks) {
-            Priority_t task_prio = GetTaskInfo(tid).priority;
+            Priority_t task_prio =  (RequiredSLA(tid) == SLA0 || RequiredSLA(tid) == SLA1) ? HIGH_PRIORITY : MID_PRIORITY;
             if (task_prio == HIGH_PRIORITY) { 
                 has_high_priority_task = true;
             }
